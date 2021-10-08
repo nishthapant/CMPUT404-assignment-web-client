@@ -33,7 +33,6 @@ class HTTPResponse(object):
         self.body = body
 
 class HTTPClient(object):
-    #def get_host_port(self,url):
 
     def connect(self, host, port):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -41,13 +40,16 @@ class HTTPClient(object):
         return None
 
     def get_code(self, data):
-        return None
+        body = data.split("\r\n")
+        code = int(body[0].split(" ")[1])
+        return code
 
     def get_headers(self,data):
         return None
 
     def get_body(self, data):
-        return None
+        body = data.split("\r\n\r\n")
+        return body[1]
     
     def sendall(self, data):
         self.socket.sendall(data.encode('utf-8'))
@@ -67,14 +69,104 @@ class HTTPClient(object):
                 done = not part
         return buffer.decode('utf-8')
 
+    def get_request_info(self,url):
+        path="None"
+        port="None"
+        host="None"
+        params="None"
+
+        request_info = url.split(":")
+
+        if(len(request_info) > 2):
+            port = request_info[2].split("/")[0]
+            host = request_info[1].replace("//", "")
+
+            if("?" in request_info[2]):
+                info = request_info[2].split("?")
+                params = info[1]
+                path = info[0].replace(port,"")
+
+            else:
+                path = request_info[2].replace(port,"")
+            port = int(port)
+
+        else:
+            port = 80
+            temp1 = request_info[1].replace("//", "")
+            temp = temp1.split("/")
+            host = temp[0]
+
+            if("?" in request_info[1]):
+                info = temp1.split("?")
+                params = info[1]
+                path = info[0].replace(host, "")
+            else:
+                path = temp1.replace(host, "")
+
+        if(path==""):
+            path="/"
+
+        return(host, port, path, params)
+        
     def GET(self, url, args=None):
-        code = 500
-        body = ""
+        host, port, path, params = self.get_request_info(url)
+
+        self.connect(host, port)
+
+        request_line = "GET %s HTTP/1.1\r\n" % path
+        host_header = "Host: %s\r\n" % host
+        connection_header = "Connection: close\r\n"
+        header_end = "\r\n"
+    
+        get_request = request_line+host_header+connection_header+header_end
+        
+        self.sendall(get_request)
+
+        response = self.recvall(self.socket)
+        self.close()
+
+        code = self.get_code(response)
+        body = self.get_body(response)
+
         return HTTPResponse(code, body)
 
     def POST(self, url, args=None):
         code = 500
         body = ""
+        if(args!=None):
+            for arg in args.keys():
+                body = body+arg+"="+args[arg]+"&"
+
+        self.get_request_info(url)
+        host, port, path, params = self.get_request_info(url)
+
+        request_line = "POST %s HTTP/1.1\r\n" % path
+        host_header = "Host: %s\r\n" % host
+        connection_header = "Connection: close\r\n"
+        type_header = "Content-Type: application/x-www-form-urlencoded\r\n"
+
+        if(args!=None):
+            content_len = len(body)
+        else:
+            content_len = 0
+
+        content_len_header = "Content-Length: %d\r\n" % content_len
+        header_end = "\r\n"
+
+        post_request = request_line+host_header+type_header+connection_header+content_len_header+header_end+body
+
+        self.connect(host, port)
+
+        self.sendall(post_request)
+
+        response = self.recvall(self.socket)
+
+        body = self.get_body(response)
+
+        code = self.get_code(response)
+
+        self.close()
+
         return HTTPResponse(code, body)
 
     def command(self, url, command="GET", args=None):
